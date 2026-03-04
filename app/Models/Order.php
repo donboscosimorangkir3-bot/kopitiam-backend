@@ -4,12 +4,14 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOne; // <-- PASTIKAN INI DI-IMPORT
 
 class Order extends Model
 {
     use HasFactory;
 
-    // IZINKAN KOLOM INI DIISI
     protected $fillable = [
         'user_id',
         'order_number',
@@ -19,20 +21,17 @@ class Order extends Model
         'shipping_note'
     ];
 
-    // Relasi: Order milik User
-    public function user()
+    public function user(): BelongsTo // <-- PASTIKAN TIPE HINT ': BelongsTo' INI
     {
         return $this->belongsTo(User::class);
     }
 
-    // Relasi: Order punya banyak Item
-    public function items()
+    public function items(): HasMany // <-- PASTIKAN TIPE HINT ': HasMany' INI
     {
         return $this->hasMany(OrderItem::class);
     }
 
-    // Relasi: Order punya satu Pembayaran
-    public function payment()
+    public function payment(): HasOne // <-- PASTIKAN TIPE HINT ': HasOne' INI
     {
         return $this->hasOne(Payment::class);
     }

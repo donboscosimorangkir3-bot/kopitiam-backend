@@ -7,114 +7,179 @@ use App\Models\Cart;
 use App\Models\Order;
 use App\Models\OrderItem;
 use App\Models\Payment;
+use App\Models\Product;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
-use Illuminate\Support\Facades\DB; // Penting untuk Transaksi Database
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
+use Illuminate\Support\Facades\Storage;
 
 class OrderController extends Controller
 {
+    // =====================================================
     // 1. CHECKOUT (Membuat Pesanan dari Keranjang)
+    // POST /api/checkout
+    // =====================================================
     public function checkout(Request $request)
     {
         $request->validate([
             'shipping_address' => 'required|string',
-            'payment_method' => 'required|in:bank_transfer,ewallet,cash',
+            'payment_method'   => 'required|in:cash_on_pickup',
         ]);
 
         $user = Auth::user();
 
-        // Ambil keranjang user
-        $cart = Cart::with('items.product')->where('user_id', $user->id)->first();
+        $cart = Cart::with('items.product')
+                    ->where('user_id', $user->id)
+                    ->first();
 
-        // Cek apakah keranjang kosong?
         if (!$cart || $cart->items->count() == 0) {
-            return response()->json(['message' => 'Keranjang kosong'], 400);
+            return response()->json([
+                'message' => 'Keranjang kosong'
+            ], 400);
         }
 
-        // --- MULAI TRANSAKSI DATABASE (Data Integrity) ---
         return DB::transaction(function () use ($request, $user, $cart) {
 
-            // A. Buat Header Pesanan
+            // Membuat order baru
             $order = Order::create([
-                'user_id' => $user->id,
-                'order_number' => 'ORD-' . strtoupper(Str::random(10)), // Contoh: ORD-XJ829KS
-                'total_amount' => 0, // Nanti diupdate
-                'status' => 'pending',
+                'user_id'          => $user->id,
+                'order_number'     => 'ORD-' . strtoupper(Str::random(10)),
+                'total_amount'     => 0,
+                'status'           => 'pending',
                 'shipping_address' => $request->shipping_address,
             ]);
 
             $totalAmount = 0;
 
-            // B. Pindahkan Item Keranjang ke Item Pesanan
             foreach ($cart->items as $item) {
+
                 $subtotal = $item->product->price * $item->quantity;
 
+                // Cek stok
+                if ($item->quantity > $item->product->stock) {
+                    throw new \Exception(
+                        'Stok produk ' . $item->product->name . ' tidak mencukupi.'
+                    );
+                }
+
+                // Simpan item pesanan
                 OrderItem::create([
-                    'order_id' => $order->id,
-                    'product_id' => $item->product_id,
-                    'product_name' => $item->product->name, // Snapshot nama
-                    'price' => $item->product->price,       // Snapshot harga
-                    'quantity' => $item->quantity,
-                    'subtotal' => $subtotal
+                    'order_id'     => $order->id,
+                    'product_id'   => $item->product_id,
+                    'product_name' => $item->product->name,
+                    'price'        => $item->product->price,
+                    'quantity'     => $item->quantity,
+                    'subtotal'     => $subtotal
                 ]);
+
+                // Kurangi stok produk
+                $product = Product::find($item->product_id);
+                $product->stock -= $item->quantity;
+                $product->save();
 
                 $totalAmount += $subtotal;
             }
 
-            // C. Update Total Harga di Header Pesanan
-            $order->update(['total_amount' => $totalAmount]);
-
-            // D. Buat Data Pembayaran (Otomatis status pending)
-            Payment::create([
-                'order_id' => $order->id,
-                'payment_method' => $request->payment_method,
-                'payment_status' => 'pending',
-                'paid_at' => null
+            // Update total harga
+            $order->update([
+                'total_amount' => $totalAmount
             ]);
 
-            // E. Kosongkan Keranjang (Hapus Cart Items)
+            // Membuat data payment
+            Payment::create([
+                'order_id'        => $order->id,
+                'payment_method'  => $request->payment_method,
+                'payment_status'  => 'pending',
+                'paid_at'         => null
+            ]);
+
+            // Kosongkan keranjang
             $cart->items()->delete();
 
             return response()->json([
-                'message' => 'Pesanan berhasil dibuat',
-                'data' => $order
+                'message' => 'Pesanan berhasil dibuat, menunggu pembayaran di kafe.',
+                'data'    => $order->load('payment')
             ], 201);
         });
     }
 
-    // 2. RIWAYAT PESANAN (History User)
+
+    // =====================================================
+    // 2. RIWAYAT PESANAN USER
+    // GET /api/orders
+    // =====================================================
     public function myOrders()
     {
         $orders = Order::where('user_id', Auth::id())
-                        ->with('items') // Sertakan detail item
+                        ->with(['items.product', 'payment'])
                         ->orderBy('created_at', 'desc')
                         ->get();
 
-        return response()->json(['data' => $orders]);
+        return response()->json([
+            'data' => $orders
+        ]);
     }
 
-    // 3. SEMUA PESANAN (Khusus Admin)
+
+    // =====================================================
+    // 3. SEMUA PESANAN (Admin/Kasir/Owner)
+    // GET /api/admin/orders
+    // =====================================================
     public function index()
     {
-        // Admin bisa lihat semua pesanan + siapa yang pesan
-        $orders = Order::with(['user', 'items'])->orderBy('created_at', 'desc')->get();
-        return response()->json(['data' => $orders]);
+        // Pastikan semua relasi diload agar Flutter menerima data lengkap
+        $orders = Order::with(['user', 'items.product', 'payment'])
+                        ->orderBy('created_at', 'desc')
+                        ->get();
+
+        return response()->json([
+            'data' => $orders
+        ]);
     }
 
-    // 4. UPDATE STATUS PESANAN (Khusus Admin)
-    public function updateStatus(Request $request, $id)
+
+    // =====================================================
+    // 4. UPDATE STATUS PESANAN
+    // PATCH /api/orders/{id}/status
+    // =====================================================
+    public function updateStatus(Request $request, Order $order)
     {
         $request->validate([
             'status' => 'required|in:pending,paid,processing,shipping,completed,cancelled'
         ]);
 
-        $order = Order::findOrFail($id);
-        $order->update(['status' => $request->status]);
+        // Opsional: cek role user
+        /*
+        if (Auth::user()->role === 'customer') {
+            return response()->json([
+                'message' => 'Unauthorized'
+            ], 403);
+        }
+        */
+
+        $oldStatus = $order->status;
+        $newStatus = $request->status;
+
+        // Update status order
+        $order->update([
+            'status' => $newStatus
+        ]);
+
+        // Update status payment jika order dibayar
+        if ($order->payment && $newStatus == 'paid' && $order->payment->payment_status != 'success') {
+            $order->payment->update([
+                'payment_status' => 'success',
+                'paid_at'        => now(),
+            ]);
+        }
+
+        // Load semua relasi sebelum dikirim ke Flutter
+        $order->load(['user', 'items.product', 'payment']);
 
         return response()->json([
-            'message' => 'Status pesanan diperbarui',
-            'data' => $order
+            'message' => "Status pesanan #{$order->order_number} diperbarui dari {$oldStatus} ke {$newStatus}",
+            'data'    => $order
         ]);
     }
 }
