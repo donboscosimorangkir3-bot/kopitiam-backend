@@ -8,6 +8,8 @@ use App\Models\OrderItem;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Carbon\Carbon; // Pastikan Carbon terimport untuk tanggal
+use Maatwebsite\Excel\Facades\Excel;
+use App\Exports\SalesExport;
 
 class ReportController extends Controller
 {
@@ -89,18 +91,26 @@ class ReportController extends Controller
         ]);
     }
 
-    // 3. EKSPOR LAPORAN (Owner) - GET /api/admin/reports/export (TODO: Implementasi file generation)
+    // 3. EKSPOR LAPORAN (Owner) - GET /api/admin/reports/export
     public function exportSales(Request $request)
     {
+        // Pastikan user adalah admin/owner/cashier (middleware sudah menangani)
+        // if (!in_array(auth()->user()->role, ['admin', 'owner', 'cashier'])) {
+        //     return response()->json(['message' => 'Unauthorized'], 403);
+        // }
+
         $startDate = $request->input('start_date') ? Carbon::parse($request->input('start_date')) : now()->startOfMonth();
         $endDate = $request->input('end_date') ? Carbon::parse($request->input('end_date')) : now()->endOfMonth();
 
-        // TODO: LOGIKA GENERATE FILE EXCEL/PDF DI SINI
-        // Ini akan melibatkan library seperti Maatwebsite/Excel atau Dompdf/Snappy PDF
-        // Untuk sekarang, kita bisa kembalikan pesan sukses placeholder.
+        $fileName = 'sales_report_' . $startDate->format('Ymd') . '-' . $endDate->format('Ymd') . '.xlsx';
 
-        return response()->json([
-            'message' => "Fitur ekspor laporan untuk tanggal {$startDate->toDateString()} hingga {$endDate->toDateString()} sedang dikembangkan. File akan segera tersedia."
-        ]);
+        try {
+            // Ini akan men-trigger download file Excel
+            return Excel::download(new SalesExport($startDate, $endDate), $fileName);
+        } catch (\Exception $e) {
+            return response()->json([
+                'message' => 'Gagal mengekspor laporan: ' . $e->getMessage()
+            ], 500);
+        }
     }
 }

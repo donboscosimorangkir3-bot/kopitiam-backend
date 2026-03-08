@@ -10,7 +10,6 @@ class OrderItem extends Model
 {
     use HasFactory;
 
-    // IZINKAN KOLOM INI DIISI
     protected $fillable = [
         'order_id',
         'product_id',
@@ -20,12 +19,14 @@ class OrderItem extends Model
         'subtotal'
     ];
 
-    public function cart(): BelongsTo // <-- TAMBAHKAN TIPE HINT ': BelongsTo'
+    // Relasi: OrderItem adalah milik Order
+    public function order(): BelongsTo
     {
-        return $this->belongsTo(Cart::class);
+        return $this->belongsTo(Order::class);
     }
 
-    public function product(): BelongsTo // <-- TAMBAHKAN TIPE HINT ': BelongsTo'
+    // Relasi: OrderItem adalah milik Product
+    public function product(): BelongsTo
     {
         return $this->belongsTo(Product::class);
     }

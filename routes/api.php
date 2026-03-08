@@ -11,6 +11,7 @@ use App\Http\Controllers\Api\CategoryController;
 use App\Http\Controllers\Api\OrderController;
 use App\Http\Controllers\Api\AnnouncementController;
 use App\Http\Controllers\Api\ReportController;
+use App\Http\Controllers\Api\StaffController;
 
 // --- PUBLIC ROUTES (Bisa diakses tanpa login) ---
 Route::post('/register', [AuthController::class, 'register']);
@@ -28,6 +29,10 @@ Route::middleware('auth:sanctum')->group(function () {
         return $request->user();
     });
     Route::post('/logout', [AuthController::class, 'logout']);
+
+    // Update Profil & Ubah Password (Customer - HANYA BUTUH auth:sanctum, BUKAN role:admin,owner,cashier)
+    Route::post('/user/profile', [AuthController::class, 'updateProfile']);        // <-- PINDAHKAN KE SINI
+    Route::post('/user/change-password', [AuthController::class, 'changePassword']); // <-- PINDAHKAN KE SINI
 
     // KERANJANG BELANJA (Customer)
     Route::get('/cart', [CartController::class, 'index']);
@@ -74,6 +79,14 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('/admin/reports/summary', [ReportController::class, 'getSummary']);
         Route::get('/admin/reports/sales', [ReportController::class, 'getDetailedSales']);
         Route::get('/admin/reports/export', [ReportController::class, 'exportSales']);
+
+        // Manajemen Staf (Hanya Owner) - Perlu middleware role:owner
+        Route::middleware('role:owner')->group(function () {
+            Route::get('/admin/staff', [StaffController::class, 'index']); // Read (daftar)
+            Route::post('/admin/staff', [StaffController::class, 'store']); // Create
+            Route::put('/admin/staff/{staff}', [StaffController::class, 'update']); // Update
+            Route::delete('/admin/staff/{staff}', [StaffController::class, 'destroy']); // Delete
+        });
 
         // TODO: Tambahkan API untuk Laporan & Statistik di sini
     });
