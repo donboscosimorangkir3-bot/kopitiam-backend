@@ -12,14 +12,15 @@ class Product extends Model
     // --- BAGIAN INI YANG KURANG TADI ---
     // Kita harus mendaftar kolom mana saja yang boleh diisi via API
     protected $fillable = [
-        'category_id',
-        'name',
-        'description',
-        'price',
-        'stock',
-        'image_url',
-        'is_available'
-    ];
+    'category_id',
+    'name',
+    'description',
+    'price',
+    'price_cold',
+    'stock',
+    'image_url',
+    'is_available',
+];
 
     // Relasi ke Kategori (Biar nanti bisa dipanggil)
     public function category()

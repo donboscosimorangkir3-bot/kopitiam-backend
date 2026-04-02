@@ -25,9 +25,9 @@ class StaffController extends Controller
         $request->validate([
             'name' => 'required|string|max:255',
             'email' => 'required|string|email|max:255|unique:users',
-            'password' => 'required|string|min:8|confirmed', // Password + konfirmasi
+            'password' => 'required|string|min:8|confirmed',
             'phone' => 'required|string|max:255',
-            'role' => 'required|in:admin,cashier', // Hanya boleh membuat admin atau cashier
+            // Hapus 'role' dari validasi, karena akan di-set default
         ]);
 
         $staff = User::create([
@@ -35,7 +35,7 @@ class StaffController extends Controller
             'email' => $request->email,
             'password' => Hash::make($request->password),
             'phone' => $request->phone,
-            'role' => $request->role,
+            'role' => 'cashier', // <-- SET DEFAULT ROLE DI SINI
         ]);
 
         return response()->json([
@@ -56,14 +56,13 @@ class StaffController extends Controller
             'name' => 'required|string|max:255',
             'email' => ['required', 'string', 'email', 'max:255', Rule::unique('users')->ignore($staff->id)],
             'phone' => 'required|string|max:255',
-            'role' => 'required|in:admin,cashier',
             'password' => 'nullable|string|min:8|confirmed', // Password opsional saat edit
         ]);
 
         $staff->name = $request->name;
         $staff->email = $request->email;
         $staff->phone = $request->phone;
-        $staff->role = $request->role;
+
 
         if ($request->filled('password')) { // Jika ada password baru
             $staff->password = Hash::make($request->password);

@@ -9,17 +9,14 @@ return new class extends Migration
     public function up(): void
     {
         Schema::table('cart_items', function (Blueprint $table) {
-            // Tambah kolom price setelah quantity
-            $table->decimal('price', 10, 2)->nullable()->after('quantity');
-            // Tambah kolom note untuk catatan item (suhu, dll)
-            $table->string('note')->nullable()->after('price');
+            $table->string('temperature')->nullable()->after('quantity');
         });
     }
 
     public function down(): void
     {
         Schema::table('cart_items', function (Blueprint $table) {
-            $table->dropColumn(['price', 'note']);
+            $table->dropColumn('temperature');
         });
     }
 };

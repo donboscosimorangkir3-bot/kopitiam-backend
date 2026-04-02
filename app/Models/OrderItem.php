@@ -11,21 +11,21 @@ class OrderItem extends Model
     use HasFactory;
 
     protected $fillable = [
-        'order_id',
+        'order_id',       // ← ini yang menyebabkan error, tidak ada sebelumnya
         'product_id',
         'product_name',
         'price',
         'quantity',
-        'subtotal'
+        'subtotal',
+        'temperature',
+        'note',
     ];
 
-    // Relasi: OrderItem adalah milik Order
     public function order(): BelongsTo
     {
         return $this->belongsTo(Order::class);
     }
 
-    // Relasi: OrderItem adalah milik Product
     public function product(): BelongsTo
     {
         return $this->belongsTo(Product::class);

@@ -9,24 +9,24 @@ return new class extends Migration
     /**
      * Run the migrations.
      */
-    public function up(): void
+    public function up()
 {
-    Schema::create('orders', function (Blueprint $table) {
+    Schema::create('notifications', function (Blueprint $table) {
         $table->id();
         $table->foreignId('user_id')->constrained()->onDelete('cascade');
-        $table->string('order_number')->unique(); // ORD-001
-        $table->decimal('total_amount', 12, 2);
-        $table->string('status')->default('pending');
-        $table->text('shipping_address');
+        $table->string('title');
+        $table->text('message');
+        $table->string('type'); // pesanan, promo, akun
+        $table->boolean('is_read')->default(false);
         $table->timestamps();
     });
-    }
+}
 
     /**
      * Reverse the migrations.
      */
     public function down(): void
     {
-        Schema::dropIfExists('orders');
+        Schema::dropIfExists('notifications');
     }
 };
