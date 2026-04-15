@@ -19,11 +19,14 @@ use App\Http\Controllers\Api\SettingController;
 // ═══════════════════════════════════════════════════════
 Route::post('/register', [AuthController::class, 'register']);
 Route::post('/login', [AuthController::class, 'login']);
+Route::post('/verify-otp', [AuthController::class, 'verifyOtp']);
 Route::get('/products', [ProductController::class, 'index']);
 Route::get('/products/{product}', [ProductController::class, 'show']);
 Route::get('/categories', [CategoryController::class, 'index']);
 Route::get('/announcements', [AnnouncementController::class, 'index']);
 Route::get('/settings', [SettingController::class, 'index']);
+Route::post('/forgot-password', [AuthController::class, 'forgotPassword']);
+Route::post('/reset-password', [AuthController::class, 'resetPassword']);
 
 // ═══════════════════════════════════════════════════════
 // PROTECTED ROUTES (Harus Login / Punya Token)
@@ -37,6 +40,8 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/logout', [AuthController::class, 'logout']);
     Route::post('/user/profile', [AuthController::class, 'updateProfile']);
     Route::post('/user/change-password', [AuthController::class, 'changePassword']);
+
+    Route::get('/tables/available', [TableController::class, 'getAvailableTables']);
 
     // Route untuk Kasir membuat pesanan manual
     Route::post('/admin/orders/manual',[\App\Http\Controllers\Api\OrderController::class, 'checkoutManual']);
