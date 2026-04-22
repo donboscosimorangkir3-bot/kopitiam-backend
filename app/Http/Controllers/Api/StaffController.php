@@ -20,29 +20,32 @@ class StaffController extends Controller
     }
 
     // 2. TAMBAH STAF BARU (Owner) - POST /api/admin/staff
-    public function store(Request $request)
-    {
-        $request->validate([
-            'name' => 'required|string|max:255',
-            'email' => 'required|string|email|max:255|unique:users',
-            'password' => 'required|string|min:8|confirmed',
-            'phone' => 'required|string|max:255',
-            // Hapus 'role' dari validasi, karena akan di-set default
-        ]);
+public function store(Request $request)
+{
+    $request->validate([
+        'name' => 'required|string|max:255',
+        'email' => 'required|string|email|max:255|unique:users',
+        'password' => 'required|string|min:8|confirmed', // Butuh password_confirmation di Flutter
+        'phone' => 'required|string|max:255',
+        // 'role' opsional, jika ingin bisa memilih antara admin atau cashier
+        'role' => 'nullable|in:admin,cashier'
+    ]);
 
-        $staff = User::create([
-            'name' => $request->name,
-            'email' => $request->email,
-            'password' => Hash::make($request->password),
-            'phone' => $request->phone,
-            'role' => 'cashier', // <-- SET DEFAULT ROLE DI SINI
-        ]);
+    $staff = User::create([
+    'name' => $request->name,
+    'email' => $request->email,
+    'password' => Hash::make($request->password),
+    'phone' => $request->phone,
+    'role' => 'cashier',
+    'is_verified' => 1,           // Harus ada
+    'email_verified_at' => now(), // HARUS ADA agar lolos pengecekan login
+]);
 
-        return response()->json([
-            'message' => 'Staf berhasil ditambahkan.',
-            'data' => $staff,
-        ], 201);
-    }
+    return response()->json([
+        'message' => 'Staf berhasil ditambahkan. Akun sudah aktif dan bisa langsung login.',
+        'data' => $staff,
+    ], 201);
+}
 
     // 3. EDIT STAF (Owner) - PUT /api/admin/staff/{id}
     public function update(Request $request, User $staff) // Gunakan User sebagai parameter

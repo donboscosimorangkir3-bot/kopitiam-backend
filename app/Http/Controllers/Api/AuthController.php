@@ -2,7 +2,7 @@
 
 namespace App\Http\Controllers\Api;
 
-use App\Models\OtpCode;
+// Hapus import OtpCode karena sudah digabung ke tabel User
 use App\Http\Controllers\Controller;
 use App\Models\User;
 use App\Mail\SendOtpMail;
@@ -24,67 +24,64 @@ class AuthController extends Controller
             'phone'    => 'required|string',
         ]);
 
+        // Generate 6 Digit OTP
+        $otp = random_int(100000, 999999);
+
         $user = User::create([
             'name' => $request->name,
             'email' => $request->email,
             'phone'    => $request->phone,
             'password' => bcrypt($request->password),
             'email_verified_at' => null,
+            'otp' => $otp, // Simpan langsung ke tabel users
+            'otp_expires_at' => Carbon::now()->addMinutes(5),
+            'is_verified' => false
         ]);
-
-        // Generate 6 Digit OTP
-        $otp = random_int(100000, 999999);
-
-        OtpCode::updateOrCreate(
-            ['email' => $request->email],
-            ['otp' => $otp, 'expires_at' => Carbon::now()->addMinutes(5)]
-        );
 
         // Kirim Email
         Mail::to($request->email)->send(new SendOtpMail($otp));
 
         return response()->json([
-            'message' => 'Kode OTP telah dikirim ke email Anda.',
+            'message' => 'Registrasi berhasil. Kode OTP telah dikirim ke email Anda.',
             'email' => $request->email
         ], 200);
     }
 
     // 2. VERIFIKASI OTP
     public function verifyOtp(Request $request) {
-    $request->validate([
-        'email' => 'required|email',
-        'otp' => 'required|string'
-    ]);
+        $request->validate([
+            'email' => 'required|email',
+            'otp' => 'required|string'
+        ]);
 
-    $otpData = OtpCode::where('email', $request->email)
+        // Cari user yang email dan OTP-nya cocok serta belum expired
+        $user = User::where('email', $request->email)
                       ->where('otp', $request->otp)
-                      ->where('expires_at', '>', Carbon::now())
+                      ->where('otp_expires_at', '>', Carbon::now())
                       ->first();
 
-    if (!$otpData) {
-        return response()->json(['message' => 'Kode OTP salah atau sudah kadaluarsa'], 400);
+        if (!$user) {
+            return response()->json(['message' => 'Kode OTP salah atau sudah kadaluarsa'], 400);
+        }
+
+        // Update status verifikasi di tabel users
+        $user->email_verified_at = now();
+        $user->is_verified = true;
+        $user->otp = null; // Hapus OTP setelah digunakan
+        $user->otp_expires_at = null;
+        $user->save();
+
+        $token = $user->createToken('auth_token')->plainTextToken;
+
+        return response()->json([
+            'message'      => 'Verifikasi berhasil, selamat datang!',
+            'data'         => $user,
+            'access_token' => $token,
+            'token_type'   => 'Bearer'
+        ], 200);
     }
 
-    $user = User::where('email', $request->email)->first();
-
-    // --- CARA LEBIH PASTI (Force Assignment) ---
-    $user->email_verified_at = now(); // Isi langsung ke objek
-    $user->save(); // Simpan ke database
-    // --------------------------------------------
-
-    $otpData->delete();
-
-    $token = $user->createToken('auth_token')->plainTextToken;
-
-    return response()->json([
-        'message'      => 'Verifikasi berhasil, selamat datang!',
-        'data'         => $user, // Sekarang otomatis sudah berisi tanggal karena kita pakai $user->save()
-        'access_token' => $token,
-        'token_type'   => 'Bearer'
-    ], 200);
-}
-
-    // 3. LOGIN (DENGAN PROTEKSI OTP)
+    // 3. LOGIN
     public function login(Request $request)
     {
         $request->validate([
@@ -100,14 +97,24 @@ class AuthController extends Controller
 
         $user = User::where('email', $request->email)->firstOrFail();
 
-        // --- PROTEKSI KEAMANAN: Cek apakah sudah verifikasi email ---
-        if (is_null($user->email_verified_at)) {
-            return response()->json([
-                'message' => 'Akun Anda belum diverifikasi. Silakan cek email untuk kode OTP.',
-                'email' => $user->email,
-                'is_verified' => false
-            ], 403); // Status 403 = Forbidden
-        }
+        // Cek apakah sudah verifikasi email
+        if (is_null($user->email_verified_at) && $user->is_verified == 0) {
+    // Jika email_verified_at KOSONG DAN is_verified juga 0 (False)
+    // Berarti dia benar-benar belum verifikasi (Customer baru)
+
+    $otp = random_int(100000, 999999);
+    $user->update([
+        'otp' => $otp,
+        'otp_expires_at' => now()->addMinutes(5)
+    ]);
+    Mail::to($user->email)->send(new SendOtpMail($otp));
+
+    return response()->json([
+        'message' => 'Akun Anda belum diverifikasi. Silakan cek email.',
+        'email' => $user->email,
+        'is_verified' => false
+    ], 403);
+}
 
         $token = $user->createToken('auth_token')->plainTextToken;
 
@@ -176,50 +183,49 @@ class AuthController extends Controller
         return response()->json(['message' => 'Password berhasil diubah.']);
     }
 
-    // 1. Fungsi Kirim OTP Lupa Password
-public function forgotPassword(Request $request) {
-    $request->validate(['email' => 'required|email|exists:users,email']);
+    // 7. FORGOT PASSWORD (Kirim OTP)
+    public function forgotPassword(Request $request) {
+        $request->validate(['email' => 'required|email|exists:users,email']);
 
-    // Generate 6 digit OTP
-    $otp = random_int(100000, 999999);
+        $user = User::where('email', $request->email)->first();
+        $otp = random_int(100000, 999999);
 
-    // Simpan ke tabel otp_codes (Gunakan model yang sudah kita buat sebelumnya)
-    \App\Models\OtpCode::updateOrCreate(
-        ['email' => $request->email],
-        ['otp' => $otp, 'expires_at' => now()->addMinutes(5)]
-    );
+        // Update OTP di tabel users
+        $user->update([
+            'otp' => $otp,
+            'otp_expires_at' => now()->addMinutes(5)
+        ]);
 
-    // Kirim Email (Gunakan mailable yang sudah kita buat sebelumnya)
-    \Illuminate\Support\Facades\Mail::to($request->email)->send(new \App\Mail\SendOtpMail($otp));
+        Mail::to($request->email)->send(new SendOtpMail($otp));
 
-    return response()->json(['message' => 'Kode reset password telah dikirim ke email Anda.'], 200);
-}
-
-// 2. Fungsi Reset Password Baru
-public function resetPassword(Request $request) {
-    $request->validate([
-        'email' => 'required|email|exists:users,email',
-        'otp' => 'required|string',
-        'password' => 'required|min:8|confirmed', // 'confirmed' artinya butuh field password_confirmation
-    ]);
-
-    // Cek OTP
-    $otpData = \App\Models\OtpCode::where('email', $request->email)
-                      ->where('otp', $request->otp)
-                      ->where('expires_at', '>', now())
-                      ->first();
-
-    if (!$otpData) {
-        return response()->json(['message' => 'Kode OTP salah atau kadaluarsa'], 400);
+        return response()->json(['message' => 'Kode reset password telah dikirim ke email Anda.'], 200);
     }
 
-    // Update Password User
-    $user = \App\Models\User::where('email', $request->email)->first();
-    $user->update(['password' => bcrypt($request->password)]);
+    // 8. RESET PASSWORD BARU
+    public function resetPassword(Request $request) {
+        $request->validate([
+            'email' => 'required|email|exists:users,email',
+            'otp' => 'required|string',
+            'password' => 'required|min:8|confirmed',
+        ]);
 
-    // Hapus OTP setelah sukses digunakan (Keamanan: OTP Sekali Pakai)
-    $otpData->delete();
+        // Cek OTP di tabel users
+        $user = User::where('email', $request->email)
+                          ->where('otp', $request->otp)
+                          ->where('otp_expires_at', '>', now())
+                          ->first();
 
-    return response()->json(['message' => 'Password berhasil diubah. Silakan login kembali.'], 200);
-}
+        if (!$user) {
+            return response()->json(['message' => 'Kode OTP salah atau kadaluarsa'], 400);
+        }
+
+        // Update Password dan hapus OTP
+        $user->update([
+            'password' => bcrypt($request->password),
+            'otp' => null,
+            'otp_expires_at' => null
+        ]);
+
+        return response()->json(['message' => 'Password berhasil diubah. Silakan login kembali.'], 200);
+    }
 }
