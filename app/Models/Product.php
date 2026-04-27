@@ -10,7 +10,6 @@ class Product extends Model
     use HasFactory;
 
     // --- BAGIAN INI YANG KURANG TADI ---
-    // Kita harus mendaftar kolom mana saja yang boleh diisi via API
     protected $fillable = [
     'category_id',
     'name',
@@ -27,4 +26,8 @@ class Product extends Model
     {
         return $this->belongsTo(Category::class);
     }
+    public function getImageUrlAttribute($value)
+{
+    return $value ? asset('storage/' . $value) : null;
+}
 }
