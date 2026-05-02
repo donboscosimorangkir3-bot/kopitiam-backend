@@ -40,88 +40,107 @@ class AnnouncementController extends Controller
 
     // 3. TAMBAH PENGUMUMAN BARU (Admin/Owner) - POST /api/admin/announcements
     public function store(Request $request)
-    {
-        $request->validate([
-            'title' => 'required|string|max:255',
-            'content' => 'required|string',
-            'image' => 'nullable|image|mimes:jpeg,png,jpg|max:2048',
-            'is_active' => 'boolean',
-            'published_at' => 'nullable|date',
-            'expired_at' => 'nullable|date|after_or_equal:published_at',
-        ]);
+{
+    $request->validate([
+        'title' => 'required|string|max:255',
+        'content' => 'required|string',
+        'image' => 'nullable|image|mimes:jpeg,png,jpg|max:2048',
+        'is_active' => 'boolean',
+        'published_at' => 'nullable|date',
+        'expired_at' => 'nullable|date|after_or_equal:published_at',
+    ]);
 
-        $imagePath = null;
-        if ($request->hasFile('image')) {
-            $path = $request->file('image')->store('announcements', 'public');
-            $imagePath = config('app.url') . Storage::url($path);
-        }
+    $imagePath = null;
 
-        $announcement = Announcement::create([
-            'title' => $request->title,
-            'content' => $request->content,
-            'image_url' => $imagePath,
-            'is_active' => $request->boolean('is_active', true),
-            'published_at' => $request->published_at ?? now(),
-            'expired_at' => $request->expired_at,
-        ]);
-
-        return response()->json([
-            'message' => 'Pengumuman berhasil ditambahkan',
-            'data' => $announcement
-        ], 201);
+    if ($request->hasFile('image')) {
+        $imagePath = $request->file('image')->store('announcements', 'public'); // hanya path
     }
+
+    $announcement = Announcement::create([
+        'title' => $request->title,
+        'content' => $request->content,
+        'image_url' => $imagePath,
+        'is_active' => $request->boolean('is_active', true),
+        'published_at' => $request->published_at ?? now(),
+        'expired_at' => $request->expired_at,
+    ]);
+
+    // generate URL untuk response
+    $announcement->image_url = $announcement->image_url
+        ? asset('storage/' . $announcement->image_url)
+        : null;
+
+    return response()->json([
+        'message' => 'Pengumuman berhasil ditambahkan',
+        'data' => $announcement
+    ], 201);
+}
 
     // 4. EDIT PENGUMUMAN (Admin/Owner) - POST /api/admin/announcements/{id}
     public function update(Request $request, Announcement $announcement)
-    {
-        $request->validate([
-            'title' => 'required|string|max:255',
-            'content' => 'required|string',
-            'image' => 'nullable|image|mimes:jpeg,png,jpg|max:2048',
-            'is_active' => 'boolean',
-            'published_at' => 'nullable|date',
-            'expired_at' => 'nullable|date|after_or_equal:published_at',
-        ]);
+{
+    $request->validate([
+        'title' => 'required|string|max:255',
+        'content' => 'required|string',
+        'image' => 'nullable|image|mimes:jpeg,png,jpg|max:2048',
+        'is_active' => 'boolean',
+        'published_at' => 'nullable|date',
+        'expired_at' => 'nullable|date|after_or_equal:published_at',
+    ]);
 
-        $imagePath = $announcement->image_url;
-        if ($request->hasFile('image')) {
-            if ($announcement->image_url) {
-                Storage::disk('public')->delete(str_replace(config('app.url') . '/storage/', '', $announcement->image_url));
-            }
-            $path = $request->file('image')->store('announcements', 'public');
-            $imagePath = config('app.url') . Storage::url($path);
-        } else if ($request->input('clear_image') == 'true') {
-            if ($announcement->image_url) {
-                Storage::disk('public')->delete(str_replace(config('app.url') . '/storage/', '', $announcement->image_url));
-            }
-            $imagePath = null;
+    $imagePath = $announcement->image_url;
+
+    // upload gambar baru
+    if ($request->hasFile('image')) {
+
+        if ($announcement->image_url) {
+            Storage::disk('public')->delete($announcement->image_url); // langsung
         }
 
-        $announcement->update([
-            'title' => $request->title,
-            'content' => $request->content,
-            'image_url' => $imagePath,
-            'is_active' => $request->boolean('is_active', true),
-            'published_at' => $request->published_at ?? now(),
-            'expired_at' => $request->expired_at,
-        ]);
-
-        return response()->json([
-            'message' => 'Pengumuman berhasil diperbarui',
-            'data' => $announcement
-        ]);
+        $imagePath = $request->file('image')->store('announcements', 'public');
     }
+
+    // hapus gambar
+    if ($request->input('clear_image') === 'true') {
+
+        if ($announcement->image_url) {
+            Storage::disk('public')->delete($announcement->image_url);
+        }
+
+        $imagePath = null;
+    }
+
+    $announcement->update([
+        'title' => $request->title,
+        'content' => $request->content,
+        'image_url' => $imagePath,
+        'is_active' => $request->boolean('is_active', true),
+        'published_at' => $request->published_at ?? now(),
+        'expired_at' => $request->expired_at,
+    ]);
+
+    // generate URL untuk response
+    $announcement->image_url = $announcement->image_url
+        ? asset('storage/' . $announcement->image_url)
+        : null;
+
+    return response()->json([
+        'message' => 'Pengumuman berhasil diperbarui',
+        'data' => $announcement
+    ]);
+}
 
     // 5. HAPUS PENGUMUMAN (Admin/Owner) - DELETE /api/admin/announcements/{id}
     public function destroy(Announcement $announcement)
-    {
-        if ($announcement->image_url) {
-            Storage::disk('public')->delete(str_replace(config('app.url') . '/storage/', '', $announcement->image_url));
-        }
-        $announcement->delete();
-
-        return response()->json([
-            'message' => 'Pengumuman berhasil dihapus'
-        ]);
+{
+    if ($announcement->image_url) {
+        Storage::disk('public')->delete($announcement->image_url); // langsung
     }
+
+    $announcement->delete();
+
+    return response()->json([
+        'message' => 'Pengumuman berhasil dihapus'
+    ]);
+}
 }

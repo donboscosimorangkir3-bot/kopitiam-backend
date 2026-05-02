@@ -23,4 +23,9 @@ class Announcement extends Model
         'published_at' => 'datetime',
         'expired_at' => 'datetime',
     ];
+
+    public function getImageUrlAttribute($value)
+{
+    return $value ? asset('storage/' . $value) : null;
+}
 }

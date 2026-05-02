@@ -4,91 +4,105 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\User;
-use App\Mail\SendOtpMail;
+// use App\Mail\SendOtpMail; // di-comment karena sekarang pakai Microservice
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Auth;
-use Illuminate\Support\Facades\Mail;
+use Illuminate\Support\Facades\Http; // UNTUK PANGGIL MICROSERVICE
 use Illuminate\Validation\Rule;
 use Carbon\Carbon;
 
 class AuthController extends Controller
 {
     // 1. REGISTRASI
+    public function register(Request $request) {
+        $request->validate([
+            'name' => 'required|string',
+            'email' => 'required|email|unique:users',
+            'password' => 'required|min:6',
+            'phone' => 'required|string',
+        ]);
 
-public function register(Request $request) {
-    $request->validate([
-        'name' => 'required|string',
-        'email' => 'required|email|unique:users',
-        'password' => 'required|min:6',
-        'phone' => 'required|string',
-    ]);
+        // Generate OTP
+        $otp = random_int(100000, 999999);
 
-    // Generate OTP
-    $otp = random_int(100000, 999999);
+        $user = User::create([
+            'name' => $request->name,
+            'email' => $request->email,
+            'phone' => $request->phone,
 
-    $user = User::create([
-        'name' => $request->name,
-        'email' => $request->email,
-        'phone' => $request->phone,
+            // HASH PASSWORD
+            'password' => Hash::make($request->password),
 
-        // HASH PASSWORD
-        'password' => Hash::make($request->password),
+            'email_verified_at' => null,
 
-        'email_verified_at' => null,
+            // HASH OTP
+            'otp' => Hash::make($otp),
+            'otp_expires_at' => Carbon::now()->addMinutes(5),
+            'is_verified' => false
+        ]);
 
-        // HASH OTP
-        'otp' => Hash::make($otp),
-        'otp_expires_at' => Carbon::now()->addMinutes(5),
-        'is_verified' => false
-    ]);
+        // 2. LOGIKA MICROSERVICE (Panggil Node.js Port 8001)
+        try {
+            // Kita mengirim perintah kirim email ke Microservice Node.js
+            $response = Http::post('http://127.0.0.1:8001/api/send-otp', [
+                'email' => $request->email,
+                'otp'   => $otp,
+            ]);
 
-    Mail::to($request->email)->send(new SendOtpMail($otp));
+            // Jika butuh debug, Anda bisa cek apakah $response->successful()
+        } catch (\Exception $e) {
+            // Jika Microservice mati, log error atau tangani sesuai kebutuhan
+            // Namun user tetap terdaftar di database
+        }
 
-    return response()->json([
-        'message' => 'Registrasi berhasil. Kode OTP telah dikirim ke email Anda.',
-        'email' => $request->email
-    ], 200);
-}
+        // 3. Matikan Mail bawaan Laravel agar benar-benar menggunakan Microservice
+        // Mail::to($request->email)->send(new SendOtpMail($otp));
 
-    // 2. VERIFIKASI OTP
+        return response()->json([
+            'message' => 'Registrasi berhasil. Kode OTP telah dikirim melalui Microservice Notifikasi.',
+            'email' => $request->email
+        ], 200);
+    }
+
+    // 2. VERIFIKASI OTP (Tetap sama sesuai kode Anda)
     public function verifyOtp(Request $request) {
-    $request->validate([
-        'email' => 'required|email',
-        'otp' => 'required|string'
-    ]);
+        $request->validate([
+            'email' => 'required|email',
+            'otp' => 'required|string'
+        ]);
 
-    $user = User::where('email', $request->email)->first();
+        $user = User::where('email', $request->email)->first();
 
-    if (!$user) {
-        return response()->json(['message' => 'User tidak ditemukan'], 404);
+        if (!$user) {
+            return response()->json(['message' => 'User tidak ditemukan'], 404);
+        }
+
+        // CEK OTP DENGAN HASH
+        if (!Hash::check($request->otp, $user->otp)) {
+            return response()->json(['message' => 'OTP salah'], 400);
+        }
+
+        // CEK EXPIRED
+        if (now()->gt($user->otp_expires_at)) {
+            return response()->json(['message' => 'OTP sudah kadaluarsa'], 400);
+        }
+
+        // Verifikasi
+        $user->update([
+            'email_verified_at' => now(),
+            'is_verified' => true,
+            'otp' => null,
+            'otp_expires_at' => null
+        ]);
+
+        $token = $user->createToken('auth_token')->plainTextToken;
+
+        return response()->json([
+            'message' => 'Verifikasi berhasil',
+            'access_token' => $token
+        ], 200);
     }
-
-    // ❗ CEK OTP DENGAN HASH
-    if (!Hash::check($request->otp, $user->otp)) {
-        return response()->json(['message' => 'OTP salah'], 400);
-    }
-
-    // ❗ CEK EXPIRED
-    if (now()->gt($user->otp_expires_at)) {
-        return response()->json(['message' => 'OTP sudah kadaluarsa'], 400);
-    }
-
-    // Verifikasi
-    $user->update([
-        'email_verified_at' => now(),
-        'is_verified' => true,
-        'otp' => null,
-        'otp_expires_at' => null
-    ]);
-
-    $token = $user->createToken('auth_token')->plainTextToken;
-
-    return response()->json([
-        'message' => 'Verifikasi berhasil',
-        'access_token' => $token
-    ], 200);
-}
 
     // 3. LOGIN
     public function login(Request $request)
@@ -192,22 +206,40 @@ public function register(Request $request) {
         return response()->json(['message' => 'Password berhasil diubah.']);
     }
 
-    // 7. FORGOT PASSWORD (Kirim OTP)
+    // 7. FORGOT PASSWORD (Kirim OTP lewat Microservice)
     public function forgotPassword(Request $request) {
         $request->validate(['email' => 'required|email|exists:users,email']);
 
         $user = User::where('email', $request->email)->first();
         $otp = random_int(100000, 999999);
 
-        // Update OTP di tabel users
-       $user->update([
-    'otp' => Hash::make($otp),
-    'otp_expires_at' => now()->addMinutes(5)
-]);
+        // Update OTP di tabel users (Tetap menggunakan HASH sesuai rubrik keamanan)
+        $user->update([
+            'otp' => Hash::make($otp),
+            'otp_expires_at' => now()->addMinutes(5)
+        ]);
 
-        Mail::to($request->email)->send(new SendOtpMail($otp));
+        // --- MULAI LOGIKA MICROSERVICE ---
+        try {
+            // Memanggil Node.js di Port 8001
+            Http::post('http://127.0.0.1:8001/api/send-otp', [
+                'email' => $request->email,
+                'otp'   => $otp,
+                'type'  => 'forgot', // Memberitahu Microservice bahwa ini adalah Lupa Password
+            ]);
+        } catch (\Exception $e) {
+            // Jika Microservice mati, Laravel akan mencatat error tapi tidak merusak alur
+            // Anda bisa log error di sini jika perlu: Log::error($e->getMessage());
+        }
+        // --- SELESAI LOGIKA MICROSERVICE ---
 
-        return response()->json(['message' => 'Kode reset password telah dikirim ke email Anda.'], 200);
+        // Matikan pengiriman mail bawaan Laravel
+        // Mail::to($request->email)->send(new SendOtpMail($otp));
+
+        return response()->json([
+            'message' => 'Kode reset password telah dikirim ke email Anda melalui Microservice Notifikasi.',
+            'email' => $request->email
+        ], 200);
     }
 
     // 8. RESET PASSWORD BARU

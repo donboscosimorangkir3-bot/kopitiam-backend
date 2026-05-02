@@ -38,20 +38,23 @@ class TableController extends Controller {
         return response()->json(['message' => 'Meja berhasil ditambah', 'data' => $table], 201);
     }
 
-    // 4. UPDATE MEJA (Termasuk Update Status Rusak/Aktif)
-    public function update(Request $request, $id) {
-        $table = CafeTable::findOrFail($id);
+    // 4. UPDATE MEJA
+public function update(Request $request, $id)
+{
+    $table = CafeTable::findOrFail($id);
 
-        $request->validate([
-            'number' => 'required|unique:cafe_tables,number,' . $id,
-            'is_available' => 'nullable|boolean' // Izinkan update status
-        ]);
+    $validated = $request->validate([
+        'number' => 'required|unique:cafe_tables,number,' . $id,
+        'is_available' => 'nullable|boolean'
+    ]);
 
-        // Menggunakan update dengan filter agar lebih aman (Security Point)
-        $table->update($request->only(['number', 'is_available']));
+    $table->update($validated);
 
-        return response()->json(['message' => 'Meja berhasil diupdate', 'data' => $table]);
-    }
+    return response()->json([
+        'message' => 'Meja berhasil diupdate',
+        'data' => $table
+    ]);
+}
 
     // 5. HAPUS MEJA
     public function destroy($id) {

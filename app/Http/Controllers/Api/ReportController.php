@@ -7,6 +7,8 @@ use App\Models\Order;
 use App\Models\OrderItem;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use App\Exports\SalesExport; // 1. IMPORT CLASS EXPORT
+use Maatwebsite\Excel\Facades\Excel; // 2. IMPORT FACADE EXCEL
 use Carbon\Carbon;
 
 class ReportController extends Controller
@@ -220,5 +222,18 @@ class ReportController extends Controller
                 'file'    => basename($e->getFile()),
             ], 500);
         }
+    }
+    public function exportExcel(Request $request)
+    {
+        // Ambil tanggal dari request (Input dari Flutter nantinya)
+        // Jika tidak ada, defaultnya adalah sebulan terakhir sampai hari ini
+        $startDate = $request->query('start_date', Carbon::now()->subMonth()->format('Y-m-d'));
+        $endDate   = $request->query('end_date', Carbon::now()->format('Y-m-d'));
+
+        // Nama file yang dihasilkan
+        $fileName = 'Laporan_Penjualan_' . $startDate . '_ke_' . $endDate . '.xlsx';
+
+        // Menjalankan proses download
+        return Excel::download(new SalesExport($startDate, $endDate), $fileName);
     }
 }
