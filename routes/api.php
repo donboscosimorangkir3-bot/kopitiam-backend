@@ -95,6 +95,7 @@ Route::middleware('auth:sanctum')->group(function () {
     // ────────────────────────────────────────────────────────────────────────
     Route::post('/checkout',  [OrderController::class, 'checkout']);
     Route::get('/orders',     [OrderController::class, 'myOrders']);
+    Route::post('/orders/{order}/cancel', [OrderController::class, 'cancelOrder']);
 
     // ────────────────────────────────────────────────────────────────────────
     // MEJA — Tersedia untuk semua user yang login

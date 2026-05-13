@@ -76,7 +76,7 @@ class ProductController extends Controller
 }
 
     // 4. EDIT PRODUK (Admin/Owner) - POST /api/admin/products/{id}
-    public function update(Request $request, Product $product)
+public function update(Request $request, Product $product)
 {
     $request->validate([
         'category_id' => 'required|exists:categories,id',
@@ -87,53 +87,60 @@ class ProductController extends Controller
             Rule::unique('products')->ignore($product->id)
         ],
         'description' => 'nullable|string',
-        'price' => 'required|numeric|min:0',
-        'price_cold' => 'nullable|numeric|min:0',
-        'stock' => 'required|integer|min:0',
-        'image' => 'nullable|image|mimes:jpeg,png,jpg|max:2048',
+        'price'       => 'required|numeric|min:0',
+        'price_cold'  => 'nullable|numeric|min:0',
+        'stock'       => 'required|integer|min:0',
+        'image'       => 'nullable|image|mimes:jpeg,png,jpg|max:2048',
     ]);
 
-    $imagePath = $product->image_url;
+    // ✅ Simpan path lama sebagai default
+    $imagePath = $product->getRawOriginal('image_url') ?? $product->image_url;
 
-    // upload gambar baru
+    // Jika image_url di DB sudah berupa full URL (bug lama), ekstrak path-nya
+    if ($imagePath && str_contains($imagePath, '/storage/')) {
+        $imagePath = preg_replace('/^.*\/storage\//', '', $imagePath);
+    }
+
+    // ✅ Upload gambar baru — hapus yang lama dulu
     if ($request->hasFile('image')) {
-
-        if ($product->image_url) {
-            Storage::disk('public')->delete($product->image_url); // langsung hapus
+        if ($imagePath) {
+            Storage::disk('public')->delete($imagePath);
         }
-
         $imagePath = $request->file('image')->store('products', 'public');
     }
 
-    // hapus gambar
+    // ✅ Hapus gambar (user klik "Hapus Gambar Lama")
     if ($request->input('clear_image') === 'true') {
-
-        if ($product->image_url) {
-            Storage::disk('public')->delete($product->image_url);
+        if ($imagePath) {
+            Storage::disk('public')->delete($imagePath);
         }
-
         $imagePath = null;
     }
 
+    // ✅ Update database — simpan PATH RELATIF saja, bukan full URL
     $product->update([
-        'category_id' => $request->category_id,
-        'name' => $request->name,
-        'description' => $request->description,
-        'price' => $request->price,
-        'price_cold' => $request->price_cold,
-        'stock' => $request->stock,
-        'image_url' => $imagePath, // path saja
-        'is_available' => $request->boolean('is_available', true)
+        'category_id'  => $request->category_id,
+        'name'         => $request->name,
+        'description'  => $request->description,
+        'price'        => $request->price,
+        'price_cold'   => $request->price_cold,
+        'stock'        => $request->stock,
+        'image_url'    => $imagePath, // ← path relatif: "products/abc.jpg"
+        'is_available' => $request->boolean('is_available', true),
     ]);
 
-    // generate URL untuk response
-    $product->image_url = $product->image_url
+    // ✅ Refresh dari database agar data response akurat
+    $product->refresh();
+
+    // ✅ Generate full URL hanya untuk response, tidak disimpan ke DB
+    $responseData = $product->toArray();
+    $responseData['image_url'] = $product->image_url
         ? asset('storage/' . $product->image_url)
         : null;
 
     return response()->json([
         'message' => 'Produk berhasil diperbarui',
-        'data' => $product
+        'data'    => $responseData,
     ]);
 }
 
