@@ -9,26 +9,39 @@ use Maatwebsite\Excel\Concerns\WithHeadings;
 use Maatwebsite\Excel\Concerns\WithMapping;
 use Maatwebsite\Excel\Concerns\WithStyles;
 use Maatwebsite\Excel\Concerns\WithColumnWidths;
+use Maatwebsite\Excel\Concerns\WithTitle;
 use PhpOffice\PhpSpreadsheet\Worksheet\Worksheet;
 use PhpOffice\PhpSpreadsheet\Style\Alignment;
 use PhpOffice\PhpSpreadsheet\Style\Fill;
 use PhpOffice\PhpSpreadsheet\Style\Border;
+use PhpOffice\PhpSpreadsheet\Style\NumberFormat;
 
-class SalesExport implements FromCollection, WithHeadings, WithMapping, WithStyles, WithColumnWidths
+class SalesExport implements
+    FromCollection,
+    WithHeadings,
+    WithMapping,
+    WithStyles,
+    WithColumnWidths,
+    WithTitle
 {
     protected $startDate;
     protected $endDate;
+    protected int $rowNumber = 0;
 
     public function __construct($startDate, $endDate)
     {
-        // Pastikan format tanggal benar (dari awal hari sampai akhir hari)
         $this->startDate = Carbon::parse($startDate)->startOfDay();
         $this->endDate   = Carbon::parse($endDate)->endOfDay();
     }
 
+    // Nama sheet — menggantikan nama default "Sheet1"
+    public function title(): string
+    {
+        return 'Detail Transaksi';
+    }
+
     public function collection()
     {
-        // Eager Loading relasi untuk mencegah N+1 Query (Performa Cepat)
         return Order::with(['user', 'items', 'payment'])
             ->whereIn('status', [
                 'pending',
@@ -45,6 +58,7 @@ class SalesExport implements FromCollection, WithHeadings, WithMapping, WithStyl
     public function headings(): array
     {
         return [
+            'No',
             'ID Pesanan',
             'Nomor Pesanan',
             'Pelanggan',
@@ -61,12 +75,13 @@ class SalesExport implements FromCollection, WithHeadings, WithMapping, WithStyl
 
     public function map($order): array
     {
-        // Gabungkan semua item jadi satu string yang rapi
-        $itemDetails = $order->items->map(function ($item) {
-            return "{$item->quantity}x {$item->product_name} (@Rp " . number_format($item->price, 0, ',', '.') . ")";
-        })->implode("\n"); // Menggunakan newline agar bisa dibaca di Excel (Wrap Text)
+        $this->rowNumber++;
 
-        // Mapping Label Status
+        $itemDetails = $order->items->map(function ($item) {
+            return "{$item->quantity}x {$item->product_name} (@Rp "
+                . number_format($item->price, 0, ',', '.') . ")";
+        })->implode("\n");
+
         $statusLabels = [
             'pending'    => 'Menunggu',
             'paid'       => 'Dibayar',
@@ -75,22 +90,21 @@ class SalesExport implements FromCollection, WithHeadings, WithMapping, WithStyl
             'cancelled'  => 'Dibatalkan',
         ];
 
-        // Mapping Label Tipe
         $orderTypeLabels = [
-            'pickup'   => 'Pickup',
-            'dine-in'  => 'Dine In',
+            'pickup'  => 'Pickup',
+            'dine-in' => 'Dine In',
         ];
 
         return [
-            $order->id,
+            $this->rowNumber,                    // No — integer murni
+            (int) $order->id,                    // ID Pesanan — integer murni
             $order->order_number,
-            $order->user->name ?? 'User Terhapus',
+            $order->user->name  ?? 'User Terhapus',
             $order->user->email ?? '-',
             $orderTypeLabels[$order->order_type] ?? $order->order_type,
             $order->table_number ?? '-',
             number_format($order->total_amount, 0, ',', '.'),
             $statusLabels[$order->status] ?? $order->status,
-            // Logika Pembayaran
             $order->payment?->payment_method === 'cash_on_pickup'
                 ? 'Bayar di Kafe'
                 : ($order->payment?->payment_method ?? 'Belum Bayar'),
@@ -102,50 +116,64 @@ class SalesExport implements FromCollection, WithHeadings, WithMapping, WithStyl
     public function columnWidths(): array
     {
         return [
-            'A' => 12,
-            'B' => 25,
-            'C' => 20,
-            'D' => 30,
-            'E' => 15,
-            'F' => 12,
-            'G' => 18,
-            'H' => 15,
-            'I' => 20,
-            'J' => 20,
-            'K' => 60, // Kolom detail item dibuat lebar
+            'A' => 6,   // No
+            'B' => 12,  // ID Pesanan
+            'C' => 25,  // Nomor Pesanan
+            'D' => 20,  // Pelanggan
+            'E' => 30,  // Email Pelanggan
+            'F' => 15,  // Tipe Pesanan
+            'G' => 12,  // Nomor Meja
+            'H' => 18,  // Total (Rp)
+            'I' => 15,  // Status
+            'J' => 20,  // Metode Pembayaran
+            'K' => 20,  // Tanggal Pesanan
+            'L' => 60,  // Detail Item
         ];
     }
 
     public function styles(Worksheet $sheet): array
     {
-        // Mengaktifkan Wrap Text untuk kolom K (Detail Item) agar newline bekerja
-        $sheet->getStyle('K')->getAlignment()->setWrapText(true);
+        $lastRow = $sheet->getHighestRow();
 
-        // Perataan tengah untuk seluruh sheet
-        $sheet->getStyle('A:J')->getAlignment()->setVertical(Alignment::VERTICAL_CENTER);
+        // FIX: Format kolom No & ID Pesanan sebagai integer — mencegah "1.00", "90.00"
+        $sheet->getStyle('A2:A' . $lastRow)
+              ->getNumberFormat()
+              ->setFormatCode(NumberFormat::FORMAT_NUMBER);
+
+        $sheet->getStyle('B2:B' . $lastRow)
+              ->getNumberFormat()
+              ->setFormatCode(NumberFormat::FORMAT_NUMBER);
+
+        // Wrap text untuk kolom Detail Item agar newline (\n) tampil rapi
+        $sheet->getStyle('L')->getAlignment()->setWrapText(true);
+
+        // Perataan vertikal tengah untuk semua kolom kecuali Detail Item
+        $sheet->getStyle('A:K')
+              ->getAlignment()
+              ->setVertical(Alignment::VERTICAL_CENTER);
 
         return [
-            // Baris 1 (Header)
+            // Styling baris header (baris 1)
             1 => [
                 'font' => [
-                    'bold' => true,
-                    'color' => ['argb' => 'FFFFFFFF']
+                    'bold'  => true,
+                    'color' => ['argb' => 'FFFFFFFF'],
                 ],
                 'alignment' => [
                     'horizontal' => Alignment::HORIZONTAL_CENTER,
-                    'vertical' => Alignment::VERTICAL_CENTER,
+                    'vertical'   => Alignment::VERTICAL_CENTER,
                 ],
                 'fill' => [
                     'fillType'   => Fill::FILL_SOLID,
-                    'startColor' => ['argb' => 'FF2D6A4F'], // Hijau Tua Kopitiam
+                    'startColor' => ['argb' => 'FF2D6A4F'],
                 ],
             ],
-            // Tambahkan border untuk seluruh data yang ada
-            'A1:K' . ($sheet->getHighestRow()) => [
+            // Border tipis untuk seluruh data
+            'A1:L' . $lastRow => [
                 'borders' => [
                     'allBorders' => [
                         'borderStyle' => Border::BORDER_THIN,
-                        'color' => ['argb' => 'FF000000'],
+                        'color'       => ['argb' => 'FF000000'],
                     ],
                 ],
             ],
