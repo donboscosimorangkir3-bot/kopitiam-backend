@@ -39,10 +39,11 @@ public function register(Request $request) {
 
     // LOGIKA MICROSERVICE (Panggil Node.js Port 8001)
     try {
-        $response = Http::timeout(5)->post('http://127.0.0.1:8001/api/send-otp', [
-            'email' => $request->email,
-            'otp'   => $otp,
-        ]);
+        $response = Http::timeout(5)->asJson()->post('http://127.0.0.1:8001/api/send-otp', [
+    'email' => $request->email,
+    'otp'   => $otp,
+    'type'  => 'register', // atau 'forgot'
+]);
 
         // Cek apakah microservice mengembalikan respons sukses
         if (!$response->successful()) {
@@ -236,11 +237,11 @@ public function forgotPassword(Request $request) {
 
     // LOGIKA MICROSERVICE
     try {
-        $response = Http::timeout(5)->post('http://127.0.0.1:8001/api/send-otp', [
-            'email' => $request->email,
-            'otp'   => $otp,
-            'type'  => 'forgot',
-        ]);
+        $response = Http::timeout(5)->asJson()->post('http://127.0.0.1:8001/api/send-otp', [
+    'email' => $request->email,
+    'otp'   => $otp,
+    'type'  => 'forgot',
+]);
 
         if (!$response->successful()) {
             // Rollback OTP ke nilai sebelumnya
